@@ -26,7 +26,6 @@ class ClassificationResult:
     """Result from the scam classifier."""
     is_scam: bool
     confidence: float
-    scam_type: str | None
     reason: str
 
 

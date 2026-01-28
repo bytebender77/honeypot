@@ -56,7 +56,6 @@ def classify_node(state: GraphState) -> GraphState:
         state["classification"] = {
             "is_scam": result.is_scam,
             "confidence": result.confidence,
-            "scam_type": result.scam_type,
             "reason": result.reason,
         }
         
@@ -75,7 +74,6 @@ def classify_node(state: GraphState) -> GraphState:
         state["classification"] = {
             "is_scam": True,
             "confidence": 0.7,
-            "scam_type": "other",
             "reason": "Classification error - defaulting to scam",
         }
         conversation = state.get("conversation", [])
@@ -290,7 +288,6 @@ class EngagementOrchestrator:
             classification = ClassificationResult(
                 is_scam=d["classification"]["is_scam"],
                 confidence=d["classification"]["confidence"],
-                scam_type=d["classification"].get("scam_type"),
                 reason=d["classification"]["reason"],
             )
         

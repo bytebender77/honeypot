@@ -33,12 +33,10 @@ class ScamClassificationResult:
     Attributes:
         is_scam: Whether the message is classified as a scam.
         confidence: Confidence score between 0.0 and 1.0.
-        scam_type: Type of scam if detected (lottery_scam, bank_fraud, etc.)
         reason: Brief explanation (max 25 words).
     """
     is_scam: bool
     confidence: float
-    scam_type: str | None
     reason: str
     
     def to_dict(self) -> dict[str, Any]:
@@ -46,7 +44,6 @@ class ScamClassificationResult:
         return {
             "is_scam": self.is_scam,
             "confidence": self.confidence,
-            "scam_type": self.scam_type,
             "reason": self.reason
         }
 
@@ -142,17 +139,6 @@ class ScamClassifierAgent:
             # Clamp confidence to valid range
             confidence = max(0.0, min(1.0, confidence))
             
-            # Extract scam_type (optional field)
-            scam_type = data.get("scam_type")
-            if scam_type is not None:
-                scam_type = str(scam_type)
-            # If scam but no type, default to "other"
-            if is_scam and not scam_type:
-                scam_type = "other"
-            # If not scam, ensure type is None
-            if not is_scam:
-                scam_type = None
-            
             reason = str(data["reason"])
             # Truncate reason to ~25 words
             words = reason.split()
@@ -162,7 +148,6 @@ class ScamClassifierAgent:
             return ScamClassificationResult(
                 is_scam=is_scam,
                 confidence=confidence,
-                scam_type=scam_type,
                 reason=reason
             )
             
@@ -171,7 +156,6 @@ class ScamClassifierAgent:
             return ScamClassificationResult(
                 is_scam=FALLBACK_IS_SCAM,
                 confidence=FALLBACK_CONFIDENCE,
-                scam_type="other",
                 reason=FALLBACK_REASON
             )
     
@@ -193,7 +177,6 @@ class ScamClassifierAgent:
             return ScamClassificationResult(
                 is_scam=FALLBACK_IS_SCAM,
                 confidence=FALLBACK_CONFIDENCE,
-                scam_type="other",
                 reason="Empty or invalid message"
             )
         
@@ -218,7 +201,6 @@ class ScamClassifierAgent:
                 return ScamClassificationResult(
                     is_scam=FALLBACK_IS_SCAM,
                     confidence=FALLBACK_CONFIDENCE,
-                    scam_type="other",
                     reason="No response from classifier"
                 )
             
