@@ -21,14 +21,13 @@ class MessageRequest(BaseModel):
     Incoming message request from client.
     
     Attributes:
-        session_id: Unique session identifier (required, non-empty).
+        session_id: Unique session identifier (optional, auto-generated if missing).
         message: The message content to classify (required, max 4000 chars).
     """
     session_id: str = Field(
-        ...,
-        min_length=1,
+        default="",
         max_length=128,
-        description="Unique session identifier"
+        description="Unique session identifier (optional)"
     )
     message: str = Field(
         ...,
@@ -37,13 +36,11 @@ class MessageRequest(BaseModel):
         description="Message content to classify"
     )
     
-    @field_validator("session_id")
-    @classmethod
-    def validate_session_id(cls, v: str) -> str:
-        """Ensure session_id is not just whitespace."""
-        if not v.strip():
-            raise ValueError("session_id cannot be empty or whitespace")
-        return v.strip()
+    def __init__(self, **data):
+        import uuid
+        if not data.get("session_id"):
+            data["session_id"] = str(uuid.uuid4())
+        super().__init__(**data)
     
     @field_validator("message")
     @classmethod
