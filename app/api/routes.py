@@ -7,7 +7,7 @@ Current endpoints:
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Header
 
 from app.api.schemas import (
     MessageRequest,
@@ -33,30 +33,44 @@ def get_orchestrator() -> EngagementOrchestrator:
     return _orchestrator
 
 
+def verify_api_key(x_api_key: str | None) -> None:
+    """Verify the x-api-key header."""
+    if not x_api_key:
+        raise HTTPException(
+            status_code=401,
+            detail="Missing x-api-key header",
+        )
+    if x_api_key != settings.honeypot_api_key:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid API key",
+        )
+
+
 @router.post(
     "/message",
     response_model=MessageResponse,
     responses={
         400: {"model": ErrorResponse, "description": "Invalid request"},
+        401: {"model": ErrorResponse, "description": "Unauthorized"},
         500: {"model": ErrorResponse, "description": "Processing failed"},
     },
     summary="Process a message",
     description="Process a message through the honeypot pipeline. Returns classification, optional agent reply, and extracted intel.",
 )
-async def process_message(request: MessageRequest) -> MessageResponse:
+async def process_message(
+    request: MessageRequest,
+    x_api_key: str | None = Header(None, alias="x-api-key"),
+) -> MessageResponse:
     """
     Process a message through the honeypot pipeline.
     
-    Args:
-        request: The message request containing session_id and message.
-        
-    Returns:
-        MessageResponse with:
-        - classification: Scam classification result (always present)
-        - agent_reply: Honeypot response (if engaged)
-        - extracted_intel: Scam indicators (if conversation complete and was scam)
+    Requires x-api-key header for authentication.
     """
-    # Validate API key is configured
+    # Verify API key
+    verify_api_key(x_api_key)
+    
+    # Validate Groq API key is configured
     if not settings.has_api_key:
         raise HTTPException(
             status_code=500,
@@ -99,21 +113,19 @@ async def process_message(request: MessageRequest) -> MessageResponse:
     "/session/{session_id}/end",
     response_model=MessageResponse,
     responses={
+        401: {"model": ErrorResponse, "description": "Unauthorized"},
         404: {"model": ErrorResponse, "description": "Session not found"},
     },
     summary="End a session",
     description="Forcefully end a session and trigger extraction.",
 )
-async def end_session(session_id: str) -> MessageResponse:
-    """
-    End a session and get final results with extraction.
+async def end_session(
+    session_id: str,
+    x_api_key: str | None = Header(None, alias="x-api-key"),
+) -> MessageResponse:
+    """End a session and get final results with extraction."""
+    verify_api_key(x_api_key)
     
-    Args:
-        session_id: The session to end.
-        
-    Returns:
-        Final MessageResponse with extracted_intel if scam.
-    """
     orchestrator = get_orchestrator()
     
     state = orchestrator.get_session(session_id)

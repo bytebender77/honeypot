@@ -37,6 +37,7 @@ class Settings:
     
     # API Keys (optional at import time)
     groq_api_key: str | None = field(default=None)
+    honeypot_api_key: str = field(default="honey-secret-key-2026")
     
     # Model settings
     model: ModelConfig = field(default_factory=ModelConfig)
@@ -54,6 +55,8 @@ class Settings:
         # Load API key from environment if not provided
         if self.groq_api_key is None:
             self.groq_api_key = os.getenv("GROQ_API_KEY")
+        if self.honeypot_api_key is None:
+            self.honeypot_api_key = os.getenv("HONEYPOT_API_KEY")
         
         # Load optional overrides
         if port := os.getenv("API_PORT"):
