@@ -196,15 +196,6 @@ async def honeypot_endpoint(
             return {"status": "success", "reply": FALLBACK_RESPONSE}
         return {"status": "success", "reply": _submission_reply(raw_text)}
 
-
-@app.post("/message")
-async def honeypot_message_alias(
-    request: Request,
-    x_api_key: str | None = Header(None, alias="x-api-key"),
-) -> dict[str, Any]:
-    """Alias for the main honeypot endpoint."""
-    return await honeypot_endpoint(request, x_api_key)
-    
     # Extract session ID from various possible fields
     session_id = (
         body.get("sessionId") or 
@@ -338,6 +329,15 @@ async def honeypot_message_alias(
             "agentResponse": None,
             "agentNotes": f"Error: {str(e)}",
         }
+
+
+@app.post("/message")
+async def honeypot_message_alias(
+    request: Request,
+    x_api_key: str | None = Header(None, alias="x-api-key"),
+) -> dict[str, Any]:
+    """Alias for the main honeypot endpoint."""
+    return await honeypot_endpoint(request, x_api_key)
 
 
 @app.get("/health")
