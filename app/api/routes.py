@@ -7,15 +7,17 @@ Current endpoints:
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Header
+import os
+
+from fastapi import APIRouter, HTTPException, Header, Request
 
 from app.api.schemas import (
-    MessageRequest,
     MessageResponse,
     ScamClassification,
     ErrorResponse,
 )
 from app.core.config import settings
+from app.agents.honeypot_agent import HoneypotEngagementAgent, FALLBACK_RESPONSE
 from app.orchestration.graph import EngagementOrchestrator
 
 
@@ -49,7 +51,7 @@ def verify_api_key(x_api_key: str | None) -> None:
 
 @router.post(
     "/message",
-    response_model=MessageResponse,
+    response_model=None,
     responses={
         400: {"model": ErrorResponse, "description": "Invalid request"},
         401: {"model": ErrorResponse, "description": "Unauthorized"},
@@ -59,9 +61,9 @@ def verify_api_key(x_api_key: str | None) -> None:
     description="Process a message through the honeypot pipeline. Returns classification, optional agent reply, and extracted intel.",
 )
 async def process_message(
-    request: MessageRequest,
+    request: Request,
     x_api_key: str | None = Header(None, alias="x-api-key"),
-) -> MessageResponse:
+) -> dict:
     """
     Process a message through the honeypot pipeline.
     
@@ -70,20 +72,59 @@ async def process_message(
     # Verify API key
     verify_api_key(x_api_key)
     
-    # Validate Groq API key is configured
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    # Extract session ID from various possible fields
+    session_id = (
+        body.get("sessionId") or
+        body.get("session_id") or
+        body.get("id") or
+        ""
+    )
+
+    # Submission format: message is an object with text
+    if isinstance(body.get("message"), dict):
+        message_text = body["message"].get("text") or body["message"].get("content")
+        if not message_text or not str(message_text).strip():
+            raise HTTPException(status_code=400, detail="Missing message text")
+
+        reply = _submission_reply(str(message_text))
+        return {
+            "status": "success",
+            "reply": reply,
+        }
+
+    # Standard format: message as string or common fallbacks
+    message_text = None
+    if isinstance(body.get("message"), str):
+        message_text = body["message"]
+    elif body.get("text"):
+        message_text = body["text"]
+    elif body.get("content"):
+        message_text = body["content"]
+    elif body.get("input"):
+        message_text = body["input"]
+
+    if not message_text or not str(message_text).strip():
+        raise HTTPException(status_code=400, detail="Missing message text")
+
+    # Validate Groq API key is configured for full pipeline
     if not settings.has_api_key:
         raise HTTPException(
             status_code=500,
             detail="API key not configured. Set GROQ_API_KEY environment variable.",
         )
-    
+
     try:
         orchestrator = get_orchestrator()
-        
+
         # Process message through orchestration
         state = orchestrator.process_message(
-            session_id=request.session_id,
-            message=request.message,
+            session_id=session_id or "api-session",
+            message=str(message_text),
         )
         
         # Build classification from state
@@ -107,6 +148,41 @@ async def process_message(
             status_code=500,
             detail="Processing failed. Please try again.",
         )
+
+
+def _rule_based_reply(message_text: str) -> str:
+    """Generate a safe, fast reply without LLM calls."""
+    text = (message_text or "").strip().lower()
+    if not text:
+        return FALLBACK_RESPONSE
+
+    account_keywords = ["account", "bank", "blocked", "suspended", "verify", "otp"]
+    prize_keywords = ["won", "prize", "lottery", "lucky draw", "reward"]
+    payment_keywords = ["upi", "pay", "payment", "send", "transfer", "fee"]
+
+    if any(k in text for k in account_keywords):
+        return "Why is my account being suspended?"
+    if any(k in text for k in prize_keywords):
+        return "I did not enter any draw. Why do I have to pay, can you explain?"
+    if any(k in text for k in payment_keywords):
+        return "Why do I need to pay? Please explain the process."
+
+    return FALLBACK_RESPONSE
+
+
+def _submission_reply(message_text: str) -> str:
+    """
+    Reply for hackathon submission format.
+
+    Defaults to rule-based for speed/reliability, unless explicitly
+    opted into LLM replies via USE_LLM_FOR_SUBMISSION=1.
+    """
+    if os.getenv("USE_LLM_FOR_SUBMISSION", "").lower() in ("1", "true", "yes"):
+        try:
+            return HoneypotEngagementAgent().respond(message_text)
+        except Exception:
+            return _rule_based_reply(message_text)
+    return _rule_based_reply(message_text)
 
 
 @router.post(
