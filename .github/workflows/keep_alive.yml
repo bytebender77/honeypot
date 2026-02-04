@@ -1,0 +1,14 @@
+name: Keep Alive
+
+on:
+  schedule:
+    - cron: '*/14 * * * *' # Every 14 minutes (Render sleeps after 15)
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Render App
+        run: |
+          curl -s https://honeypot-o0os.onrender.com/health

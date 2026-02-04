@@ -92,7 +92,7 @@ def _rule_based_reply(message_text: str) -> str:
     payment_keywords = ["upi", "pay", "payment", "send", "transfer", "fee"]
 
     if any(k in text for k in account_keywords):
-        return "Why is my account being blocked? I need to understand, can you explain?"
+        return "Why is my account being suspended?"
     if any(k in text for k in prize_keywords):
         return "I did not enter any draw. Why do I have to pay, can you explain?"
     if any(k in text for k in payment_keywords):
@@ -110,9 +110,24 @@ def _generate_reply(message_text: str) -> str:
         return _rule_based_reply(message_text)
 
     try:
-        return HoneypotEngagementAgent().respond(message_text)
+        reply = HoneypotEngagementAgent().respond(message_text)
+        if reply == FALLBACK_RESPONSE:
+            return _rule_based_reply(message_text)
+        return reply
     except Exception:
         return _rule_based_reply(message_text)
+
+
+def _submission_reply(message_text: str) -> str:
+    """
+    Reply for hackathon submission format.
+    
+    Defaults to rule-based for speed/reliability, unless explicitly
+    opted into LLM replies via USE_LLM_FOR_SUBMISSION=1.
+    """
+    if os.getenv("USE_LLM_FOR_SUBMISSION", "").lower() in ("1", "true", "yes"):
+        return _generate_reply(message_text)
+    return _rule_based_reply(message_text)
 
 
 # ============================================================================
@@ -213,7 +228,7 @@ async def honeypot_endpoint(
         if not message_text:
             raise HTTPException(status_code=400, detail="Missing message text")
 
-        reply = _generate_reply(message_text)
+        reply = _submission_reply(message_text)
         return {
             "status": "success",
             "reply": reply,
