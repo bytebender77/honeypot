@@ -8,6 +8,7 @@ from __future__ import annotations
 from dotenv import load_dotenv
 load_dotenv()
 
+import os
 import uuid
 import time
 import httpx
@@ -19,6 +20,8 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from app.core.config import settings
 from app.orchestration.graph import EngagementOrchestrator
 from app.agents.intel_extractor import ScamIntelExtractor
+from app.agents.honeypot_agent import HoneypotEngagementAgent, FALLBACK_RESPONSE
+from app.api.routes import router as api_router
 
 
 app = FastAPI(
@@ -27,6 +30,9 @@ app = FastAPI(
     version="1.0.0",
     debug=settings.debug,
 )
+
+# Include versioned API routes for the full pipeline
+app.include_router(api_router, prefix="/api/v1")
 
 
 # ============================================================================
@@ -69,6 +75,44 @@ def get_session(session_id: str) -> SessionData:
     if session_id not in _sessions:
         _sessions[session_id] = SessionData()
     return _sessions[session_id]
+
+
+# ============================================================================
+# Fast Reply Helpers (Hackathon Submission Format)
+# ============================================================================
+
+def _rule_based_reply(message_text: str) -> str:
+    """Generate a safe, fast reply without LLM calls."""
+    text = (message_text or "").strip().lower()
+    if not text:
+        return FALLBACK_RESPONSE
+
+    account_keywords = ["account", "bank", "blocked", "suspended", "verify", "otp"]
+    prize_keywords = ["won", "prize", "lottery", "lucky draw", "reward"]
+    payment_keywords = ["upi", "pay", "payment", "send", "transfer", "fee"]
+
+    if any(k in text for k in account_keywords):
+        return "Why is my account being blocked? I need to understand, can you explain?"
+    if any(k in text for k in prize_keywords):
+        return "I did not enter any draw. Why do I have to pay, can you explain?"
+    if any(k in text for k in payment_keywords):
+        return "Why do I need to pay? Please explain the process."
+
+    return FALLBACK_RESPONSE
+
+
+def _generate_reply(message_text: str) -> str:
+    """Try LLM reply first; fall back to rule-based if needed."""
+    if os.getenv("FAST_REPLY_ONLY", "").lower() in ("1", "true", "yes"):
+        return _rule_based_reply(message_text)
+
+    if not settings.has_api_key:
+        return _rule_based_reply(message_text)
+
+    try:
+        return HoneypotEngagementAgent().respond(message_text)
+    except Exception:
+        return _rule_based_reply(message_text)
 
 
 # ============================================================================
@@ -127,9 +171,6 @@ async def honeypot_endpoint(
     """
     verify_api_key(x_api_key)
     
-    if not settings.has_api_key:
-        raise HTTPException(status_code=500, detail="GROQ_API_KEY not configured")
-    
     # Parse raw JSON body
     try:
         body = await request.json()
@@ -166,6 +207,21 @@ async def honeypot_endpoint(
     # Format 5: input field
     elif body.get("input"):
         message_text = body["input"]
+
+    # Hackathon submission format: respond with minimal {status, reply}
+    if isinstance(body.get("message"), dict):
+        if not message_text:
+            raise HTTPException(status_code=400, detail="Missing message text")
+
+        reply = _generate_reply(message_text)
+        return {
+            "status": "success",
+            "reply": reply,
+        }
+
+    # For other formats, require API key for full pipeline
+    if not settings.has_api_key:
+        raise HTTPException(status_code=500, detail="GROQ_API_KEY not configured")
     
     if not message_text:
         # Return a simple success for basic connectivity test
