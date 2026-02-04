@@ -186,11 +186,24 @@ async def honeypot_endpoint(
     """
     verify_api_key(x_api_key)
     
-    # Parse raw JSON body
+    # Parse raw JSON body (fallback to raw text if invalid)
     try:
         body = await request.json()
     except Exception:
-        raise HTTPException(status_code=400, detail="Invalid JSON body")
+        raw = await request.body()
+        raw_text = raw.decode("utf-8", errors="ignore").strip()
+        if not raw_text:
+            return {"status": "success", "reply": FALLBACK_RESPONSE}
+        return {"status": "success", "reply": _submission_reply(raw_text)}
+
+
+@app.post("/message")
+async def honeypot_message_alias(
+    request: Request,
+    x_api_key: str | None = Header(None, alias="x-api-key"),
+) -> dict[str, Any]:
+    """Alias for the main honeypot endpoint."""
+    return await honeypot_endpoint(request, x_api_key)
     
     # Extract session ID from various possible fields
     session_id = (
@@ -202,37 +215,27 @@ async def honeypot_endpoint(
     
     # Extract message from various possible formats
     message_text = None
-    
-    # Format 1: message.text (GUVI format)
     if isinstance(body.get("message"), dict):
         message_text = body["message"].get("text") or body["message"].get("content")
-    
-    # Format 2: message as string
     elif isinstance(body.get("message"), str):
         message_text = body["message"]
-    
-    # Format 3: text field directly
     elif body.get("text"):
         message_text = body["text"]
-    
-    # Format 4: content field
     elif body.get("content"):
         message_text = body["content"]
-    
-    # Format 5: input field
     elif body.get("input"):
         message_text = body["input"]
 
     # Hackathon submission format: respond with minimal {status, reply}
-    if isinstance(body.get("message"), dict):
-        if not message_text:
-            raise HTTPException(status_code=400, detail="Missing message text")
-
-        reply = _submission_reply(message_text)
-        return {
-            "status": "success",
-            "reply": reply,
-        }
+    is_submission = (
+        isinstance(body.get("message"), dict)
+        or "sessionId" in body
+        or "conversationHistory" in body
+        or "metadata" in body
+    )
+    if is_submission:
+        reply = _submission_reply(str(message_text or ""))
+        return {"status": "success", "reply": reply}
 
     # For other formats, require API key for full pipeline
     if not settings.has_api_key:

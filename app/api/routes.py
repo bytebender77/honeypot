@@ -75,7 +75,11 @@ async def process_message(
     try:
         body = await request.json()
     except Exception:
-        raise HTTPException(status_code=400, detail="Invalid JSON body")
+        raw = await request.body()
+        raw_text = raw.decode("utf-8", errors="ignore").strip()
+        if not raw_text:
+            return {"status": "success", "reply": FALLBACK_RESPONSE}
+        return {"status": "success", "reply": _submission_reply(raw_text)}
 
     # Extract session ID from various possible fields
     session_id = (
@@ -85,17 +89,28 @@ async def process_message(
         ""
     )
 
-    # Submission format: message is an object with text
-    if isinstance(body.get("message"), dict):
-        message_text = body["message"].get("text") or body["message"].get("content")
-        if not message_text or not str(message_text).strip():
-            raise HTTPException(status_code=400, detail="Missing message text")
+    # Submission format: return minimal {status, reply}
+    is_submission = (
+        isinstance(body.get("message"), dict)
+        or "sessionId" in body
+        or "conversationHistory" in body
+        or "metadata" in body
+    )
+    if is_submission:
+        message_text = None
+        if isinstance(body.get("message"), dict):
+            message_text = body["message"].get("text") or body["message"].get("content")
+        elif isinstance(body.get("message"), str):
+            message_text = body["message"]
+        elif body.get("text"):
+            message_text = body["text"]
+        elif body.get("content"):
+            message_text = body["content"]
+        elif body.get("input"):
+            message_text = body["input"]
 
-        reply = _submission_reply(str(message_text))
-        return {
-            "status": "success",
-            "reply": reply,
-        }
+        reply = _submission_reply(str(message_text or ""))
+        return {"status": "success", "reply": reply}
 
     # Standard format: message as string or common fallbacks
     message_text = None
