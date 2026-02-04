@@ -29,10 +29,8 @@ class MessageRequest(BaseModel):
         max_length=128,
         description="Unique session identifier (optional)"
     )
-    message: str = Field(
+    message: str | dict[str, Any] = Field(
         ...,
-        min_length=1,
-        max_length=4000,
         description="Message content to classify"
     )
     
@@ -44,9 +42,9 @@ class MessageRequest(BaseModel):
     
     @field_validator("message")
     @classmethod
-    def validate_message(cls, v: str) -> str:
-        """Ensure message is not just whitespace."""
-        if not v.strip():
+    def validate_message(cls, v: Any) -> Any:
+        """Ensure message is present and not empty."""
+        if isinstance(v, str) and not v.strip():
             raise ValueError("message cannot be empty or whitespace")
         return v
 
