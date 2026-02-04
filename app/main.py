@@ -350,3 +350,41 @@ async def health_check() -> dict[str, str]:
 async def root_get() -> dict[str, str]:
     """Root GET endpoint for health checks."""
     return {"status": "healthy", "service": "honeypot"}
+
+
+@app.post("/{path:path}")
+async def catch_all_post(
+    path: str,
+    request: Request,
+    x_api_key: str | None = Header(None, alias="x-api-key"),
+) -> dict[str, Any]:
+    """
+    Catch-all POST handler for unexpected tester paths.
+    
+    Always returns the minimal {status, reply} response format.
+    """
+    verify_api_key(x_api_key)
+
+    try:
+        body = await request.json()
+    except Exception:
+        raw = await request.body()
+        raw_text = raw.decode("utf-8", errors="ignore").strip()
+        if not raw_text:
+            return {"status": "success", "reply": FALLBACK_RESPONSE}
+        return {"status": "success", "reply": _submission_reply(raw_text)}
+
+    message_text = None
+    if isinstance(body, dict):
+        if isinstance(body.get("message"), dict):
+            message_text = body["message"].get("text") or body["message"].get("content")
+        elif isinstance(body.get("message"), str):
+            message_text = body["message"]
+        elif body.get("text"):
+            message_text = body["text"]
+        elif body.get("content"):
+            message_text = body["content"]
+        elif body.get("input"):
+            message_text = body["input"]
+
+    return {"status": "success", "reply": _submission_reply(str(message_text or ""))}
